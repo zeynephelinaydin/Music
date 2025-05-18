@@ -17,6 +17,7 @@ class PlayerViewController: UIViewController, AVAudioPlayerDelegate {
     public var songs: [Song] = []
 
     // MARK: - IBOutlets
+    @IBOutlet weak var favoriteButton: UIButton!
     @IBOutlet var holder: UIView!
     @IBOutlet var albumImageView: UIImageView!
     @IBOutlet var songNameLabel: UILabel!
@@ -41,7 +42,13 @@ class PlayerViewController: UIViewController, AVAudioPlayerDelegate {
         refreshAndPlay()
     }
 
-    // MARK: - Setup
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        player?.stop()
+        stopProgressTimer()
+    }
+
+    // MARK: - Setup Shuffle
     func setupShuffle() {
         if isShuffle {
             shuffledOrder = Array(0..<songs.count).shuffled()
@@ -49,24 +56,26 @@ class PlayerViewController: UIViewController, AVAudioPlayerDelegate {
         }
     }
 
-    // MARK: - Configure UI & Audio
+    // MARK: - Configure Player & UI
     func configure() {
+        guard songs.indices.contains(position) else { return }
         let song = songs[position]
-        guard let urlString = Bundle.main.path(forResource: song.trackName, ofType: "mp3") else {
-            print("MP3 dosyası bulunamadı")
+
+        guard let path = Bundle.main.path(forResource: song.trackName, ofType: "mp3") else {
+            print("❌ MP3 dosyası bulunamadı")
             return
         }
 
         do {
-            let url = URL(fileURLWithPath: urlString)
+            let url = URL(fileURLWithPath: path)
             try AVAudioSession.sharedInstance().setMode(.default)
             try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
             player = try AVAudioPlayer(contentsOf: url)
-            player?.volume = lastVolume
             player?.delegate = self
+            player?.volume = lastVolume
             player?.prepareToPlay()
         } catch {
-            print("Ses oynatma hatası: \(error.localizedDescription)")
+            print("❌ Ses oynatma hatası: \(error.localizedDescription)")
         }
 
         albumImageView.image = UIImage(named: song.imageName)
@@ -78,9 +87,33 @@ class PlayerViewController: UIViewController, AVAudioPlayerDelegate {
         volumeSlider.value = lastVolume
         currentTimeLabel.text = "00:00"
         durationLabel.text = formatTime(player?.duration ?? 0)
+
+        updateFavoriteIcon()
     }
 
-    // MARK: - Actions
+    // MARK: - Favorite Handling
+    func updateFavoriteIcon() {
+        let current = songs[position]
+        if ViewController.sharedFavorites.contains(where: { $0.name == current.name }) {
+            favoriteButton.setImage(UIImage(systemName: "heart.fill"), for: .normal)
+            favoriteButton.tintColor = .systemBlue
+        } else {
+            favoriteButton.setImage(UIImage(systemName: "heart"), for: .normal)
+            favoriteButton.tintColor = .white
+        }
+    }
+
+    @IBAction func didTapFavoriteButton(_ sender: UIButton) {
+        let current = songs[position]
+        if let index = ViewController.sharedFavorites.firstIndex(where: { $0.name == current.name }) {
+            ViewController.sharedFavorites.remove(at: index)
+        } else {
+            ViewController.sharedFavorites.append(current)
+        }
+        updateFavoriteIcon()
+    }
+
+    // MARK: - Playback Controls
     @IBAction func didTapPlayPause(_ sender: UIButton) {
         if isPlaying {
             player?.pause()
@@ -137,25 +170,23 @@ class PlayerViewController: UIViewController, AVAudioPlayerDelegate {
         player?.volume = lastVolume
     }
 
-    // MARK: - Audio Control
+    func updatePlayPauseButtonIcon() {
+        let config = UIImage.SymbolConfiguration(pointSize: 44)
+        let iconName = isPlaying ? "pause.circle.fill" : "play.circle.fill"
+        playPauseButton.setImage(UIImage(systemName: iconName)?.withConfiguration(config), for: .normal)
+    }
+
+    // MARK: - Timer Management
     func refreshAndPlay() {
         player?.stop()
         stopProgressTimer()
         configure()
-
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             self.player?.play()
             self.isPlaying = true
             self.updatePlayPauseButtonIcon()
             self.startProgressTimer()
         }
-    }
-
-
-    func updatePlayPauseButtonIcon() {
-        let config = UIImage.SymbolConfiguration(pointSize: 44)
-        let iconName = isPlaying ? "pause.circle.fill" : "play.circle.fill"
-        playPauseButton.setImage(UIImage(systemName: iconName)?.withConfiguration(config), for: .normal)
     }
 
     func startProgressTimer() {
@@ -178,14 +209,8 @@ class PlayerViewController: UIViewController, AVAudioPlayerDelegate {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
-    // MARK: - Delegate
+    // MARK: - AVAudioPlayerDelegate
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         didTapNext(nextButton)
-    }
-
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        player?.stop()
-        stopProgressTimer()
     }
 }
